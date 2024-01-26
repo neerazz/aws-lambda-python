@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'  # Specifies the template version
+Transform: "AWS::Serverless-2021-10-31"  # Uses AWS SAM for deployment
+Description: A sample SAM template for your Lambda function and API Gateway
+
+Resources:
+  MyLambdaFunction: # Name of your Lambda function
+    Type: AWS::Serverless::Function  # Defines a Lambda function
+    Properties:
+      Handler: main.lambda_handler  # Specifies the entry point for your Lambda function
+      Runtime: python3.9  # Adjust runtime as needed
+      CodeUri: ./  # Path to your function's code
+      Description: A Lambda function that triggers from API Gateway
+      MemorySize: 128  # Memory allocation for the function
+      Timeout: 10  # Maximum execution time in seconds
+
+      Environment: # Environment variables for your Lambda function
+        Variables:
+          ENV: prod
+
+      Events:
+        GetUsers:
+          Type: Api  # Triggers the function via API Gateway
+          Properties:
+            Path: /users  # API path for the trigger
+            Method: GET  # HTTP method for the trigger
+            RestApiId: # Reference to the API Gateway resource
+              Ref: MyApiGateway
+
+      Policies:
+        - AWSSecretsManagerGetSecretValuePolicy:
+            SecretArn: !Ref TestPasswordSecret  # Grants access to the secret
+        - AWSSSMParameterReadPolicy:
+            ParameterName: /user_db  # Grants access to the database URL parameter
+        - AWSSSMParameterReadPolicy:
+            ParameterName: /test_user_id  # Grants access to the user ID parameter
+
+  # API Gateway
+  MyApiGateway: # Name of your API Gateway
+    Type: AWS::Serverless::Api
+    Properties:
+      StageName: prod  # Deployment stage
+      DefinitionBody: # API definition in OpenAPI format
+        swagger: "2.0"
+        info:
+          title: "API for Lambda"
+        paths:
+          /users:
+            get:
+              responses: { }  # Define expected responses
+              x-amazon-apigateway-integration: # Integration with Lambda
+                httpMethod: POST  # Integration request method
+                type: aws_proxy  # Proxy integration type
+                uri: # URI of the Lambda function
+                  Fn::Sub: arn:aws:apigateway:${AWS::Region}:lambda:path/2015-03-31/functions/${MyLambdaFunction.Arn}/invocations
+
+  UserDbParameter:
+    Type: AWS::SSM::Parameter  # Stores the database URL in SSM Parameter Store
+    Properties:
+      Name: /user_db  # Parameter name
+      Type: String
+      Value: your_database_url  # Replace with actual database URL
+
+  TestUserIdParameter:
+    Type: AWS::SSM::Parameter  # Stores the test user ID in SSM Parameter Store
+    Properties:
+      Name: /test_user_id  # Parameter name
+      Type: String
+      Value: your_test_user_id  # Replace with actual test user ID
+
+  TestPasswordSecret:
+    Type: AWS::SecretsManager::Secret  # Stores the test password in Secrets Manager
+    Properties:
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "your_username"}'  # Replace with actual username
+        GenerateStringKey: "password"  # Generates a password automatically
+      Name: test_password  # Secret name
+
+Outputs:
+  ApiGatewayEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${MyApiGateway}.execute-api.${AWS::Region}.amazonaws.com/Prod/users/"
